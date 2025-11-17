@@ -108,36 +108,42 @@ Chart that deploys platform operators or CRDs.
 - Allow separate management by different teams  
 - Enable easy environment onboarding  
 
-### How to use secret templates
+## 🔐 How to Use Secret Templates
 
-Users should:
+Users should follow these steps to create and apply secrets.
 
-1. Navigate to `secrets/secret-examples/`
-2. Copy a template:
+### 1. Navigate to the example secrets directory:
 
-   ```bash
-   cp secrets/secret-examples/airflow-secret-example.yaml secrets/airflow-secret.yaml
-Edit the copied file with real sensitive values.
-
-(Optional) Rename for environment:
+cd secrets/secret-examples/
 
 bash
 Copy code
+
+### 2. Copy a template:
+
+```bash
+cp secrets/secret-examples/airflow-secret-example.yaml secrets/airflow-secret.yaml
+3. Edit the copied file and insert real sensitive values.
+4. (Optional) Rename for environment:
+bash
+Copy code
 mv secrets/airflow-secret.yaml secrets/prod-airflow-secret.yaml
-Applying secrets before Helm installs
-Secrets must be created before installing any chart:
+🔐 Applying Secrets Before Installing Helm Charts
+Secrets must be created before installing any chart.
+
+Apply individual secrets:
 
 bash
 Copy code
 kubectl apply -f secrets/oas-secret.yaml
 kubectl apply -f secrets/airflow-secret.yaml
-Or apply the entire secret folder:
+Or apply the entire folder:
 
 bash
 Copy code
 kubectl apply -f secrets/
 🚀 Installation Instructions
-You must apply secrets first, then install charts using their custom values files.
+You must apply secrets first, then install charts using the provided values files.
 
 1. Create or select a namespace
 bash
@@ -152,29 +158,35 @@ kubectl apply -f secrets/
 Airflow
 bash
 Copy code
-helm upgrade --install airflow airflow/ -f oas-airflow-values.yaml
+helm upgrade --install airflow airflow/ \
+  -f oas-airflow-values.yaml
 NiFi
 bash
 Copy code
-helm upgrade --install nifi nifi/ -f oas-nifi-values.yaml
+helm upgrade --install nifi nifi/ \
+  -f oas-nifi-values.yaml
 Kafka Connect
 bash
 Copy code
-helm upgrade --install kafka-connect kafka-connect/ -f oas-kafka-connect-values.yaml
+helm upgrade --install kafka-connect kafka-connect/ \
+  -f oas-kafka-connect-values.yaml
 Superset
 bash
 Copy code
-helm upgrade --install superset superset/ -f oas-superset-values.yaml
+helm upgrade --install superset superset/ \
+  -f oas-superset-values.yaml
 PXC-DB
 bash
 Copy code
-helm upgrade --install pxc-db pxc-db/ -f oas-pxcdb-values.yaml
+helm upgrade --install pxc-db pxc-db/ \
+  -f oas-pxcdb-values.yaml
 Operators
 bash
 Copy code
-helm upgrade --install oas-operators oas-operators/ -f oas-operators-values.yaml
+helm upgrade --install oas-operators oas-operators/ \
+  -f oas-operators-values.yaml
 🛠️ Customization Notes
-Variables users must update
+Variables users must update:
 Database usernames/passwords inside secrets
 
 OAuth / Keycloak secrets
@@ -185,17 +197,10 @@ Storage class names
 
 Ingress domain names
 
-Compatibility & Dependencies
+🔗 Compatibility & Dependencies
 Component	Depends On
 Airflow	PXC-DB, Keycloak (optional)
 NiFi	Kafka, Zookeeper
 Kafka Connect	Kafka
 Superset	Database, optional authentication
 Operators	None (may provide CRDs)
-
-Make sure dependencies are installed before deploying higher-level components.
-
-yaml
-Copy code
-
----
