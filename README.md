@@ -1,137 +1,140 @@
-# Helm Charts Repository
-
+Helm Charts Repository
 This repository contains a collection of Helm charts and custom value configurations used to deploy core components of the OAS platform. It provides a consistent, modular structure for deploying applications such as Airflow, NiFi, Kafka Connect, Superset, and supporting services like PXC-DB and platform operators.
+All sensitive information is stored in a dedicated secrets/ directory to ensure secure and maintainable deployments.
 
-All sensitive information is stored in a dedicated `secrets/` directory to ensure secure and maintainable deployments.
-
----
-
-## 📌 Project Overview
-
+📌 Project Overview
 This repository aims to:
 
-- Provide **version-controlled Helm charts** for all OAS components  
-- Maintain **centralized values.yaml overrides** for each chart  
-- Store and manage sensitive data in a **dedicated secrets folder**  
-- Offer **deployment-ready templates** and a standardized workflow  
-- Simplify onboarding for new developers and operators  
+Provide version-controlled Helm charts for all OAS components
+Maintain centralized values.yaml overrides for each chart
+Store and manage sensitive data in a dedicated secrets folder
+Offer deployment-ready templates and a standardized workflow
+Simplify onboarding for new developers and operators
 
-### 📦 Charts Included
+📦 Charts Included
+ComponentPurposeairflow/Deployment of Apache Airflow (scheduler, workers, webserver).nifi/Apache NiFi cluster deployment and configs.kafka-connect/Kafka Connect workers and custom connector configs.superset/Apache Superset analytics and UI.flink-chart/Custom Helm chart for Apache Flink jobs/sessions.pxc-db/Percona XtraDB Cluster database.oas-operators/Platform operators and CRDs required for OAS.
+🎛 Custom values.yaml Files
+The repo contains custom override files:
+oas-airflow-values.yaml
+oas-kafka-connect-values.yaml
+oas-nifi-values.yaml
+oas-superset-values.yaml
+oas-pxcdb-values.yaml
+oas-operators-values.yaml
+These files:
 
-| Component        | Purpose |
-|------------------|---------|
-| **airflow/** | Deployment of Apache Airflow, scheduler, workers, webserver, etc. |
-| **nifi/** | Apache NiFi cluster configuration, processors, and connections. |
-| **kafka-connect/** | Deployment of Kafka Connect cluster with custom connectors. |
-| **superset/** | Apache Superset analytics and UI. |
-| **flink-chart/** | Custom Helm chart for Apache Flink. |
-| **pxc-db/** | Percona XtraDB Cluster (database for the platform). |
-| **oas-operators/** | Operator-level controllers for the OAS platform. |
+Contain production-ready configuration
+Avoid modifying the chart templates themselves
+Provide consistency across environments
 
-## 🎛 Custom Values Files
-
-Each chart has a corresponding custom values file:
-
-- `oas-airflow-values.yaml`
-- `oas-kafka-connect-values.yaml`
-- `oas-nifi-values.yaml`
-- `oas-superset-values.yaml`
-- `oas-pxcdb-values.yaml`
-- `oas-operators-values.yaml`
-
-These files provide opinionated defaults for the OAS environment. They help ensure:
-
-- Consistency across environments  
-- Clean separation of config vs. chart templates  
-- Minimal edits inside chart sources  
-
----
-
-## 🔐 Secrets Management Pattern
-
-All secrets are stored outside chart directories inside:
-
+🔐 Secrets Management Pattern
+All secrets live under:
 secrets/
 ├── oas-secret.yaml
 └── secret-examples/
-├── airflow-git-secret.yaml
-├── airflow-keycloak-cm.yaml
-├── airflow-secret-example.yaml
-├── flink-secret-example.yaml
-├── kc-secret-example.yaml
-├── nifi-secret-example.yaml
-└── superset-secret-example.yaml
+    ├── airflow-git-secret.yaml
+    ├── airflow-keycloak-cm.yaml
+    ├── airflow-secret-example.yaml
+    ├── flink-secret-example.yaml
+    ├── kc-secret-example.yaml
+    ├── nifi-secret-example.yaml
+    └── superset-secret-example.yaml
+Real secrets are not stored in the repository.
+Developers instead copy templates from secret-examples/.
 
-
-Real secrets are **not** stored in the repository.  
-Developers instead copy templates from `secret-examples/`.
-
----
-
-## 📁 Folder-by-Folder Explanation
-
-### **airflow/**
+📁 Folder-by-Folder Explanation
+airflow/
 Helm chart for deploying Apache Airflow components such as workers, scheduler, webserver, log configurations, ingress, and configs.
-
-### **kafka-connect/**
+kafka-connect/
 Helm chart for deploying Kafka Connect, including connector configs, plugins, and worker configs.
-
-### **nifi/**
+nifi/
 Chart for running Apache NiFi clusters with node configs, zookeeper setup, flow configuration, and persistent volumes.
-
-### **superset/**
+superset/
 Apache Superset deployment with webserver, metadata migrations, optional Celery workers, ingress, and database connectivity.
-
-### **flink-chart/**
+flink-chart/
 Custom chart packaging Apache Flink (session clusters, job clusters, configmaps).
-
-### **pxc-db/**
+pxc-db/
 Chart for Percona XtraDB Cluster, acting as the database backend for the OAS platform.
-
-### **oas-operators/**
+oas-operators/
 Contains operators or custom controllers required by the OAS platform (CRDs, RBAC, deployments).
-
-### **secrets/**
-
-#### `secrets/oas-secret.yaml`
+secrets/
+secrets/oas-secret.yaml
 Main secret bundle for platform-wide credentials.
+secrets/secret-examples/
+Contains example templates (safe defaults) for:
 
-#### `secrets/secret-examples/`
-Contains **example templates** (safe defaults) for:
-
-- Airflow Git secret  
-- Airflow Keycloak configmap  
-- NiFi credentials  
-- Kafka Connect secrets  
-- Flink example credentials  
-- Superset admin credentials  
+Airflow Git secret
+Airflow Keycloak configmap
+NiFi credentials
+Kafka Connect secrets
+Flink example credentials
+Superset admin credentials
 
 Users copy these templates to create real secrets.
 
----
+🔐 How Secrets Work
+Why separate secrets?
 
-## 🔐 How Secrets Work
+Prevents accidental commits of sensitive data
+Ensures secrets are not packaged inside Helm charts
+Allows different teams to maintain secrets independently
+Keeps charts generic, portable, and reusable
 
-### Why separate secrets?
+How to use secret templates
 
-- Prevents accidental commits of sensitive data  
-- Ensures secrets are **not** packaged inside Helm charts  
-- Allows different teams to maintain secrets independently  
-- Keeps charts generic, portable, and reusable  
+Copy an example template:
 
-### How to use secret templates
+bash   cp secrets/secret-examples/airflow-secret-example.yaml secrets/airflow-secret.yaml
 
-1. Copy an example template:
+Edit the copied file and insert real values.
+Apply secrets before charts:
 
-   ```bash
-   cp secrets/secret-examples/airflow-secret-example.yaml secrets/airflow-secret.yaml
-
-2. Edit the copied file and insert real values.
-3. Apply secrets before charts:
-   ```bash
-   kubectl apply -f secrets/
+bash   kubectl apply -f secrets/
 Apply all secrets at once
-  ```bash
-  kubectl apply -f secrets/
+bashkubectl apply -f secrets/
 
+🚀 Installation Instructions
+1. Create/select a namespace
+bashkubectl create namespace oas || true
+kubectl config set-context --current --namespace=oas
+2. Apply Secrets
+bashkubectl apply -f secrets/
+3. Deploy Charts Using Custom Values
+Airflow
+bashhelm upgrade --install airflow airflow/ \
+  -f oas-airflow-values.yaml
+NiFi
+bashhelm upgrade --install nifi nifi/ \
+  -f oas-nifi-values.yaml
+Kafka Connect
+bashhelm upgrade --install kafka-connect kafka-connect/ \
+  -f oas-kafka-connect-values.yaml
+Superset
+bashhelm upgrade --install superset superset/ \
+  -f oas-superset-values.yaml
+PXC-DB
+bashhelm upgrade --install pxc-db pxc-db/ \
+  -f oas-pxcdb-values.yaml
+Operators
+bashhelm upgrade --install oas-operators oas-operators/ \
+  -f oas-operators-values.yaml
 
+🛠️ Customization Notes
+Things users must update
+
+Database usernames/passwords
+OAuth or Keycloak secrets
+Token-based authentication (Airflow, NiFi, etc.)
+Storage class names
+External ingress domain names
+
+Dependencies Overview
+ComponentDepends OnAirflowPXC-DB, Keycloak (optional)NiFiKafka + ZookeeperKafka ConnectKafkaSupersetDatabase + Authentication providerOperatorsCRD definitions
+
+✨ Best Practices
+
+Do not commit real secrets—use templates.
+Keep values files separate from chart templates.
+Use the same deployment workflow across environments.
+Run helm lint before pushing updates.
+Use namespaces to isolate deployments.
