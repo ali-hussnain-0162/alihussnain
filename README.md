@@ -28,19 +28,16 @@ This repository aims to:
 | **pxc-db/** | Percona XtraDB Cluster (database for the platform). |
 | **oas-operators/** | Operator-level controllers for the OAS platform. |
 
-### 🎛 Custom values.yaml Files
+## 🎛 Custom Values Files
 
 Each chart has a corresponding custom values file:
 
-oas-airflow-values.yaml
-oas-kafka-connect-values.yaml
-oas-nifi-values.yaml
-oas-superset-values.yaml
-oas-pxcdb-values.yaml
-oas-operators-values.yaml
-
-markdown
-Copy code
+- `oas-airflow-values.yaml`
+- `oas-kafka-connect-values.yaml`
+- `oas-nifi-values.yaml`
+- `oas-superset-values.yaml`
+- `oas-pxcdb-values.yaml`
+- `oas-operators-values.yaml`
 
 These files provide opinionated defaults for the OAS environment. They help ensure:
 
@@ -48,7 +45,9 @@ These files provide opinionated defaults for the OAS environment. They help ensu
 - Clean separation of config vs. chart templates  
 - Minimal edits inside chart sources  
 
-### 🔐 Secrets Management Pattern
+---
+
+## 🔐 Secrets Management Pattern
 
 All secrets are stored outside chart directories inside:
 
@@ -61,7 +60,7 @@ secrets/
 ├── flink-secret-example.yaml
 ├── kc-secret-example.yaml
 ├── nifi-secret-example.yaml
-├── superset-secret-example.yaml
+└── superset-secret-example.yaml
 
 yaml
 Copy code
@@ -77,68 +76,68 @@ This ensures:
 
 ## 📁 Folder-by-Folder Explanation
 
-### **airflow/**  
-Contains the Helm chart for deploying Apache Airflow. Includes templates for webserver, scheduler, workers, ingress, configmaps, etc.
+### `airflow/`
+Contains the Helm chart for deploying Apache Airflow (webserver, scheduler, workers, ingress, configmaps, etc).
 
-### **kafka-connect/**  
-Helm chart for Kafka Connect, including connector configurations and deployment/statefulset definitions.
+### `kafka-connect/`
+Helm chart for Kafka Connect, including connector configs, deployment/statefulset templates.
 
-### **nifi/**  
-Apache NiFi chart with cluster configuration, node identity, Zookeeper settings, and persistent storage templates.
+### `nifi/`
+Apache NiFi cluster chart including node identity, Zookeeper settings, persistent storage templates.
 
-### **superset/**  
-Helm chart for Apache Superset, including webserver, async workers, database migration jobs, and ingress.
+### `superset/`
+Helm chart for Apache Superset (webserver, async workers, DB migration jobs, ingress).
 
-### **flink-chart/**  
-Custom chart wrapping Apache Flink deployment logic (job cluster, session cluster, configmaps, etc.).
+### `flink-chart/`
+Custom Helm chart wrapping Apache Flink job/session cluster logic.
 
-### **pxc-db/**  
-Helm chart for deploying Percona XtraDB Cluster (MySQL-compatible database).
+### `pxc-db/`
+Helm chart for Percona XtraDB Cluster (MySQL-compatible DB).
 
-### **oas-operators/**  
-Chart that deploys platform operators or CRDs required by the OAS ecosystem.
+### `oas-operators/`
+Chart that deploys platform operators or CRDs.
 
 ---
 
 ## 🔐 How Secrets Work
 
-### Why are secrets separated?
+### Why separate secrets?
 
-- Avoid committing real credentials inside charts  
-- Prevent accidental packaging of secrets when users run `helm package`  
-- Allow different teams to manage secrets independently of chart logic  
-- Maintain a “plug-and-play” system for onboarding new environments  
+- Prevent committing real credentials  
+- Avoid packaging secrets when running `helm package`  
+- Allow separate management by different teams  
+- Enable easy environment onboarding  
 
 ### How to use secret templates
 
 Users should:
 
 1. Navigate to `secrets/secret-examples/`
-2. Copy the template they need:
+2. Copy a template:
 
    ```bash
    cp secrets/secret-examples/airflow-secret-example.yaml secrets/airflow-secret.yaml
 Edit the copied file with real sensitive values.
 
-(Optional) Rename based on environment, e.g.:
+(Optional) Rename for environment:
 
 bash
 Copy code
-secrets/prod-airflow-secret.yaml
+mv secrets/airflow-secret.yaml secrets/prod-airflow-secret.yaml
 Applying secrets before Helm installs
-Secrets must be created before installing any dependent chart:
+Secrets must be created before installing any chart:
 
 bash
 Copy code
 kubectl apply -f secrets/oas-secret.yaml
 kubectl apply -f secrets/airflow-secret.yaml
-Or apply entire folder:
+Or apply the entire secret folder:
 
 bash
 Copy code
 kubectl apply -f secrets/
 🚀 Installation Instructions
-You must apply secrets first, then install each chart using its values file.
+You must apply secrets first, then install charts using their custom values files.
 
 1. Create or select a namespace
 bash
@@ -153,51 +152,50 @@ kubectl apply -f secrets/
 Airflow
 bash
 Copy code
-helm upgrade --install airflow airflow/ \
-  -f oas-airflow-values.yaml
+helm upgrade --install airflow airflow/ -f oas-airflow-values.yaml
 NiFi
 bash
 Copy code
-helm upgrade --install nifi nifi/ \
-  -f oas-nifi-values.yaml
+helm upgrade --install nifi nifi/ -f oas-nifi-values.yaml
 Kafka Connect
 bash
 Copy code
-helm upgrade --install kafka-connect kafka-connect/ \
-  -f oas-kafka-connect-values.yaml
+helm upgrade --install kafka-connect kafka-connect/ -f oas-kafka-connect-values.yaml
 Superset
 bash
 Copy code
-helm upgrade --install superset superset/ \
-  -f oas-superset-values.yaml
+helm upgrade --install superset superset/ -f oas-superset-values.yaml
 PXC-DB
 bash
 Copy code
-helm upgrade --install pxc-db pxc-db/ \
-  -f oas-pxcdb-values.yaml
+helm upgrade --install pxc-db pxc-db/ -f oas-pxcdb-values.yaml
 Operators
 bash
 Copy code
-helm upgrade --install oas-operators oas-operators/ \
-  -f oas-operators-values.yaml
+helm upgrade --install oas-operators oas-operators/ -f oas-operators-values.yaml
 🛠️ Customization Notes
-Variables users should update
+Variables users must update
 Database usernames/passwords inside secrets
 
-OAuth / Keycloak client secrets
+OAuth / Keycloak secrets
 
-Internal service tokens
+Internal API/service tokens
 
-Storage class names in values files
+Storage class names
 
-External DNS / ingress FQDNs
+Ingress domain names
 
 Compatibility & Dependencies
 Component	Depends On
 Airflow	PXC-DB, Keycloak (optional)
 NiFi	Kafka, Zookeeper
 Kafka Connect	Kafka
-Superset	Database (PXC-DB), authentication provider
-Operators	None, but may manage CRDs for others
+Superset	Database, optional authentication
+Operators	None (may provide CRDs)
 
-Ensure dependent services exist before deploying higher-level applications.
+Make sure dependencies are installed before deploying higher-level components.
+
+yaml
+Copy code
+
+---
