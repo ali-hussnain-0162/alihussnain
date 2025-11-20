@@ -61,139 +61,321 @@ The following operators require their CRDs to be installed:
 - Flink Kubernetes Operator CRDs
 - cert-manager CRDs (via cert-manager installation)
 
+## Secret Management
+
+### Creating the Deployment Secret
+
+Before deploying any components, you must create a Kubernetes secret containing all required credentials and configuration values. A template is provided in `dummy-secret/oas-dummy-sec.yaml`.
+
+**Steps:**
+
+1. Copy the template:
+```bash
+cp dummy-secret/oas-dummy-sec.yaml oas-secret.yaml
+```
+
+2. Edit `oas-secret.yaml` and replace all values with actual credentials:
+```bash
+# Use a secure editor
+vim oas-secret.yaml
+# or
+nano oas-secret.yaml
+```
+
+3. Apply the secret to your cluster:
+```bash
+kubectl create namespace oas-analytics
+kubectl apply -f oas-secret.yaml -n oas-analytics
+```
+
+4. **For CI/CD pipelines**: Base64-encode the entire secret file and store it as a GitHub secret:
+```bash
+# Encode the secret
+base64 -w 0 oas-secret.yaml > oas-secret.yaml.b64
+
+# Copy the contents and add to GitHub Secrets as OAS_SECRET
+cat oas-secret.yaml.b64
+```
+
+### Security Best Practices
+
+⚠️ **IMPORTANT**:
+- Never commit `oas-secret.yaml` to version control
+- Store production secrets in a secure vault (HashiCorp Vault, AWS Secrets Manager, etc.)
+- Rotate credentials regularly
+- Use RBAC to restrict secret access
+- The `oas-secret-template.yaml` is safe to commit (contains no real credentials)
+
+### Secret Fields Reference
+
+The deployment secret contains credentials for:
+- **Database**: Root password, application user passwords
+- **Airflow**: Fernet key (for encrypting connections), webserver secret key, admin password
+- **Superset**: Secret key, admin password, database connection
+- **Kafka**: Bootstrap servers, SASL credentials
+- **NiFi**: Keystore/truststore passwords, admin credentials
+- **Registry**: OCI registry credentials
+
+See `dummy-secret/oas-dummy-sec.yaml` for the complete list of required fields.
+
+## Chart Versions
+
+All charts are deployed from the OCI registry: `oci://us-central1-docker.pkg.dev/product-obp/oas/charts`
+
+| Component | Chart Version | Description |
+|-----------|---------------|-------------|
+| pxc-operator | 1.18.0 | Percona XtraDB Cluster Operator |
+| pxc-db | 1.18.0 | Percona XtraDB Cluster Database |
+| flink-kubernetes-operator | 1.12.0 | Apache Flink Kubernetes Operator |
+| airflow | 1.18.0 | Apache Airflow |
+| nifi | 1.2.1 | Apache NiFi |
+| kafka-connect | 0.4.0 | Kafka Connect |
+| superset | 0.15.0 | Apache Superset |
+
 ## Deployment Sequence
 
-⚠️ **Critical**: Components must be installed in this specific order to avoid dependency conflicts and initialization failures.
+⚠️ **CRITICAL**: Components must be installed in this exact order to satisfy dependencies and avoid initialization failures.
+
+### Prerequisites Check
+
+Before starting deployment:
+```bash
+# Verify Helm version
+helm version
+
+# Verify kubectl access
+kubectl cluster-info
+
+# Create namespace
+kubectl create namespace oas-analytics
+```
+
+---
 
 ### Step 1: Install cert-manager
+
+cert-manager is required for TLS certificate management across all components.
 ```bash
+# Install cert-manager
 helm install cert-manager oci://us-central1-docker.pkg.dev/product-obp/oas/charts/cert-manager \
   --version v1.18.2 \
-  -f cert-manager-values.yaml \
+  -f values-cert-manager.yaml \
   -n cert-manager --create-namespace
+
+# Wait for cert-manager to be ready
+kubectl wait --for=condition=ready pod \
+  -l app.kubernetes.io/instance=cert-manager \
+  -n cert-manager \
+  --timeout=300s
+
+# Verify installation
+kubectl get pods -n cert-manager
 ```
 
-Wait for cert-manager pods to be ready:
+---
+
+### Step 2: Apply Secrets
 ```bash
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/instance=cert-manager -n cert-manager --timeout=300s
+# Apply the deployment secret (created in Secret Management section)
+kubectl apply -f oas-secret.yaml -n oas-analytics
+
+# Verify secret is created
+kubectl get secret oas-secret -n oas-analytics
 ```
 
-### Step 2: Install pxc-operator
-The PXC operator must be deployed before the database cluster:
-```bash
-helm registry login us-central1-docker.pkg.dev
-helm install pxc-operator oci://us-central1-docker.pkg.dev/product-obp/oas/charts/pxc-operator \
-  --version 1.18.0 \
-  -f values-files/oas-pxc-operator.yaml
-```
+---
 
-### Step 3: Install flink-kubernetes-operator
-```bash
-helm install flink-operator oci://us-central1-docker.pkg.dev/product-obp/oas/charts/flink-kubernetes-operator \
-  --version 1.12.0 \
-  -f values-files/oas-flink-operator.yaml
-```
-
-### Step 4: Install Optiva Analytics Service
-Once operators are running, deploy the main chart:
-```bash
-cd optiva-analytics-service/
-helm dependency update
-helm install optiva . \
-  -f values-files/oas-pxcdb-values.yaml \
-  -f values-files/oas-airflow-values.yaml \
-  -f values-files/oas-nifi-values.yaml \
-  -f values-files/oas-kafka-connect-values.yaml \
-  -f values-files/oas-superset-values.yaml
-```
-
-**Why this sequence matters:**
-- cert-manager must exist before any certificate resources are created
-- Operators must be running before their custom resources (PXC clusters, Flink jobs) can be deployed
-- Database must be available before Airflow and other services attempt to connect
-
-## Deployment Instructions
-
-### 1. Authenticate to OCI Registry
-
+### Step 3: Authenticate to OCI Registry
 ```bash
 # Login to the OCI registry
 helm registry login us-central1-docker.pkg.dev
 
-# Enter credentials when prompted
+# When prompted, enter:
 # Username: _json_key
-# Password: <contents of service account JSON key>
+# Password: 
 ```
 
-### 2. Update Chart Dependencies
-
-Navigate to the chart directory and pull dependencies:
-
+**Alternative**: Use a credentials file:
 ```bash
-cd optiva-analytics-service/
-helm dependency update
+cat ~/my-gcp-key.json | helm registry login \
+  us-central1-docker.pkg.dev \
+  --username _json_key \
+  --password-stdin
 ```
 
-This downloads all dependent charts specified in `Chart.yaml` to the `charts/` subdirectory.
+---
 
-### 3. Install the Chart
+### Step 4: Install PXC Operator
 
-Basic installation:
+The PXC Operator must be running before any database clusters can be deployed.
 ```bash
-helm install oas optiva-analytics-service/
+helm install pxc-operator \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/pxc-operator \
+  --version 1.18.0 \
+  -f values-files/oas-pxc-operator.yaml \
+  --namespace oas-analytics \
+  --wait \
+  --timeout 10m
+
+# Verify operator is running
+kubectl get pods -l app.kubernetes.io/name=pxc-operator -n oas-analytics
+kubectl get crd perconaxtradbclusters.pxc.percona.com
 ```
 
-Installation with custom values:
+---
+
+### Step 5: Install PXC Database
+
+Deploy the actual database cluster.
 ```bash
-helm install optiva optiva-analytics-service/ \
+helm install pxc-db \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/pxc-db \
+  --version 1.18.0 \
+  -f values-files/oas-pxcdb-values.yaml \
+  --namespace oas-analytics \
+  --wait \
+  --timeout 15m
+
+# Wait for cluster to be ready (this may take 5-10 minutes)
+kubectl get pxc -n oas-analytics
+kubectl wait --for=condition=ready pod \
+  -l app.kubernetes.io/instance=pxc-db \
+  -n oas-analytics \
+  --timeout=900s
+
+# Verify database is accessible
+kubectl get svc -l app.kubernetes.io/instance=pxc-db -n oas-analytics
+```
+
+---
+
+### Step 6: Install Flink Kubernetes Operator
+
+Required for running Flink jobs.
+```bash
+helm install flink-operator \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/flink-kubernetes-operator \
+  --version 1.12.0 \
+  -f values-files/oas-flink-operator.yaml \
+  --namespace oas-analytics \
+  --wait \
+  --timeout 10m
+
+# Verify operator is running
+kubectl get pods -l app.kubernetes.io/name=flink-kubernetes-operator -n oas-analytics
+kubectl get crd flinkdeployments.flink.apache.org
+```
+
+---
+
+### Step 7: Install Apache Airflow
+
+Airflow will automatically create its database and users during the migration job.
+```bash
+helm install airflow \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/airflow \
+  --version 1.18.0 \
   -f values-files/oas-airflow-values.yaml \
-  -f values-files/oas-superset-values.yaml \
+  --namespace oas-analytics \
+  --wait \
+  --timeout 15m
+
+# Monitor migration job
+kubectl get jobs -l app.kubernetes.io/component=migration -n oas-analytics
+kubectl logs -f job/airflow-migration -n oas-analytics
+
+# Verify Airflow pods are running
+kubectl get pods -l app.kubernetes.io/name=airflow -n oas-analytics
+```
+
+**Note**: The Airflow migration job creates:
+- Airflow metadata database
+- ETL user in PXC (using credentials from `oas-secret`)
+- Required database schema and initial admin user
+
+---
+
+### Step 8: Install Apache NiFi
+```bash
+helm install nifi \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/nifi \
+  --version 1.2.1 \
   -f values-files/oas-nifi-values.yaml \
   --namespace oas-analytics \
-  --create-namespace
+  --wait \
+  --timeout 15m
+
+# Verify NiFi StatefulSet
+kubectl get statefulset nifi -n oas-analytics
+kubectl get pods -l app.kubernetes.io/name=nifi -n oas-analytics
 ```
 
-### 4. Enable/Disable Components
+---
 
-Individual components can be toggled in `values.yaml`:
+### Step 9: Install Kafka Connect
+```bash
+helm install kafka-connect \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/kafka-connect \
+  --version 0.4.0 \
+  -f values-files/oas-kafka-connect-values.yaml \
+  --namespace oas-analytics \
+  --wait \
+  --timeout 10m
 
-```yaml
-pxc-operator:
-  enabled: true
+# Verify Kafka Connect
+kubectl get pods -l app.kubernetes.io/name=kafka-connect -n oas-analytics
 
-pxc-db:
-  enabled: true
-
-flink-kubernetes-operator:
-  enabled: true
-
-airflow:
-  enabled: true
-
-nifi:
-  enabled: false  # Disable NiFi if not needed
-
-kafka-connect:
-  enabled: true
-
-superset:
-  enabled: true
+# Check REST API is accessible
+kubectl port-forward svc/kafka-connect 8083:8083 -n oas-analytics &
+curl http://localhost:8083/
 ```
 
-### 5. Verify Deployment
+---
 
+### Step 10: Install Apache Superset
+
+Superset will automatically create its database and users during the migration job.
+```bash
+helm install superset \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/superset \
+  --version 0.15.0 \
+  -f values-files/oas-superset-values.yaml \
+  --namespace oas-analytics \
+  --wait \
+  --timeout 15m
+
+# Monitor migration job
+kubectl get jobs -l app.kubernetes.io/component=migration -n oas-analytics
+kubectl logs -f job/superset-migration -n oas-analytics
+
+# Verify Superset pods
+kubectl get pods -l app.kubernetes.io/name=superset -n oas-analytics
+```
+
+---
+
+### Deployment Verification
+
+After all components are deployed:
 ```bash
 # Check all pods are running
 kubectl get pods -n oas-analytics
 
-# Check Helm release status
-helm status optiva -n oas-analytics
+# Check all services
+kubectl get svc -n oas-analytics
 
-# View all deployed resources
-kubectl get all -n oas-analytics
+# Check persistent volumes
+kubectl get pvc -n oas-analytics
+
+# View all deployed Helm releases
+helm list -n oas-analytics
 ```
 
-## Using values-files
+Expected output should show all components with STATUS: `deployed`.
+
+---
+
+## Values Files Configuration
 
 The `values-files/` directory contains environment-specific and component-specific configuration overrides:
 
@@ -208,149 +390,180 @@ The `values-files/` directory contains environment-specific and component-specif
 | `oas-superset-values.yaml` | Database connections, authentication, secret keys |
 | `values-cert-manager.yaml` | Certificate issuer configuration |
 
-**Best Practice**: Create environment-specific value files (e.g., `values-dev.yaml`, `values-prod.yaml`) and store sensitive data in external secret management systems (HashiCorp Vault, AWS Secrets Manager, etc.).
+## Accessing Components
 
-## Access Information
-
-Access methods depend on your Kubernetes service configuration (NodePort, LoadBalancer, or Ingress).
+Access methods vary based on your Kubernetes service configuration (NodePort or LoadBalancer).
 
 ### Apache Superset
 
-**NodePort:**
+**Port Forward (Development/Testing):**
 ```bash
-kubectl get svc superset -n analytics
-# Access at http://<node-ip>:<node-port>
-```
-
-**Port Forward (for testing):**
-```bash
-kubectl port-forward svc/oas-superset 8088:8088 -n oas-analytics
+kubectl port-forward svc/superset 8088:8088 -n oas-analytics
 # Access at http://localhost:8088
 ```
 
-**Default Credentials**: Check `oas-superset-values.yaml` or chart documentation
+**NodePort:**
+```bash
+kubectl get svc superset -n oas-analytics -o jsonpath='{.spec.ports[0].nodePort}'
+# Access at http://:
+```
+
+**Default Credentials**: Set in `oas-superset-values.yaml` under `superset.init.adminUser`
 
 ---
 
 ### Apache Airflow
 
-**NodePort:**
-```bash
-kubectl get svc airflow-webserver -n oas-analytics
-# Access at http://<node-ip>:<node-port>
-```
-
 **Port Forward:**
 ```bash
-kubectl port-forward svc/airflow-api-server 8080:8080 -n oas-analytics
+kubectl port-forward svc/airflow-webserver 8080:8080 -n oas-analytics
 # Access at http://localhost:8080
 ```
 
-**Default Credentials**: Typically `admin` / check `oas-airflow-values.yaml`
+**NodePort:**
+```bash
+kubectl get svc airflow-webserver -n oas-analytics -o jsonpath='{.spec.ports[0].nodePort}'
+# Access at http://:
+```
+
+**Default Credentials**: Check `oas-airflow-values.yaml` under `airflow.webserver.defaultUser`
+
+**Accessing DAGs:**
+- DAGs location: Configured in `oas-airflow-values.yaml`
+- Sync method: Git-sync, volume mount, or S3
+- DAG examples: Check Airflow UI → DAGs page
 
 ---
 
 ### Apache NiFi
 
-**NodePort:**
-```bash
-kubectl get svc nifi -n oas-analytics
-# Access at https://<node-ip>:<node-port>/nifi
-```
-
 **Port Forward:**
 ```bash
-kubectl port-forward svc/osa-nifi 8443:8443 -n oas-analytics
+kubectl port-forward svc/nifi 8443:8443 -n oas-analytics
 # Access at https://localhost:8443/nifi
 ```
 
-**Note**: NiFi uses HTTPS by default. Accept the self-signed certificate or configure proper TLS.
+**NodePort:**
+```bash
+kubectl get svc nifi -n oas-analytics -o jsonpath='{.spec.ports[?(@.name=="https")].nodePort}'
+# Access at https://:/nifi
+```
+
+**Note**: 
+- NiFi uses HTTPS by default with self-signed certificates
+- Accept certificate warning in browser or configure proper TLS
+- Credentials: Set in `oas-secret.yaml` (nifi-admin-password)
 
 ---
 
 ### Kafka Connect
 
-**REST API Access:**
-```bash
-kubectl get svc kafka-connect -n oas-analytics
-# REST API at http://<service-ip>:8083
-```
-
-**Check Connectors:**
+**REST API Port Forward:**
 ```bash
 kubectl port-forward svc/kafka-connect 8083:8083 -n oas-analytics
-curl http://localhost:8083/connectors
 ```
 
+**Check Status:**
+```bash
+curl http://localhost:8083/
+```
 ---
 
 ### Apache Flink Dashboard
 
+**Find Flink JobManager Service:**
+```bash
+kubectl get svc -l component=jobmanager -n oas-analytics
+```
+
 **Port Forward:**
 ```bash
-# Find the Flink JobManager service
-kubectl get svc -l component=jobmanager -n oas-analytics
-kubectl port-forward svc/<flink-jobmanager-svc> 8081:8081 -n oas-analytics
+kubectl port-forward svc/ 8081:8081 -n oas-analytics
 # Access at http://localhost:8081
+```
+
+**Submit Flink Jobs:**
+- Via FlinkDeployment CRDs
+- Via REST API
+- Via Flink CLI (from within cluster)
+
+---
+
+### PXC Database
+
+**Direct Connection (from within cluster):**
+```bash
+# Create a MySQL client pod
+kubectl run mysql-client --image=mysql:8.0 -it --rm --restart=Never -n oas-analytics -- \
+  mysql -h pxc-db-haproxy -u root -p
+
+# Enter root password from oas-secret
+```
+
+**Port Forward (for external tools):**
+```bash
+kubectl port-forward svc/pxc-db-haproxy 3306:3306 -n oas-analytics
+# Connect using MySQL client at localhost:3306
 ```
 
 ---
 
-## Directory Structure
+## Uninstalling Components
 
-```
-Optiva-Analytics-Service/
-├── deployments/          # Kubernetes manifests for CI/CD pipelines
-│                         # May include GitOps configs, ArgoCD applications
-├── optiva-analytics-service/  # Main Helm chart directory
-│   ├── Chart.yaml        # Chart metadata and dependencies
-│   ├── values.yaml       # Default configuration values
-│   ├── templates/        # Kubernetes resource templates
-│   └── charts/           # Downloaded dependency charts (generated)
-├── scripts/              # Helper scripts for deployment, testing, backups
-│                         # May include init scripts, migration tools
-├── values-files/         # Environment and component-specific overrides
-│   └── *.yaml            # Separate values files per component/environment
-└── README.md             # This file
-```
-
-### Key Directories
-
-- **deployments/**: Contains deployment automation scripts, CI/CD pipeline definitions, or GitOps manifests for different environments
-- **scripts/**: Utility scripts for common operations (database migrations, backup/restore, health checks, troubleshooting)
-- **optiva-analytics-service/**: The primary Helm chart with all templates and default configurations
-- **values-files/**: Organized configuration overrides to avoid modifying the base `values.yaml`
-
-### Linting the Chart
-
-Validate chart syntax and best practices:
-
+To remove components, uninstall in reverse order:
 ```bash
-# Lint the chart
-helm lint optiva-analytics-service/
+# Remove applications first
+helm uninstall superset -n oas-analytics
+helm uninstall kafka-connect -n oas-analytics
+helm uninstall nifi -n oas-analytics
+helm uninstall airflow -n oas-analytics
 
-# Validate with specific values
-helm lint optiva-analytics-service/ -f values-files/oas-airflow-values.yaml
+# Remove operators
+helm uninstall flink-operator -n oas-analytics
 
-# Dry-run to check rendered manifests
-helm install --dry-run --debug optiva optiva-analytics-service/
+# Remove database (WARNING: This deletes all data!)
+helm uninstall pxc-db -n oas-analytics
+helm uninstall pxc-operator -n oas-analytics
+
+# Remove secrets
+kubectl delete secret oas-secret -n oas-analytics
+
+# Optionally remove namespace
+kubectl delete namespace oas-analytics
 ```
 
-### Testing Chart Changes
+**⚠️ WARNING**: Uninstalling the database will delete all persistent data unless you have backups configured.
 
+---
+
+## Upgrading Components
+
+### Upgrade Individual Components
 ```bash
-# Template the chart to see rendered YAML
-helm template optiva optiva-analytics-service/ > rendered.yaml
+# Check for available versions
+helm search repo charts/airflow --versions
 
-# Install in a test namespace
-helm install test-optiva optiva-analytics-service/ \
-  --namespace test-analytics \
-  --create-namespace \
-  --dry-run
+# Upgrade to new version
+helm upgrade airflow \
+  oci://us-central1-docker.pkg.dev/product-obp/oas/charts/airflow \
+  --version 1.19.0 \
+  -f values-files/oas-airflow-values.yaml \
+  --namespace oas-analytics
 
-# Run Helm tests (if defined)
-helm test optiva -n analytics
+# Rollback if needed
+helm rollback airflow -n oas-analytics
 ```
+
+### Update Chart Versions in Documentation
+
+When upgrading, update the version table in this README:
+
+1. Edit the **Chart Versions** section above
+2. Update version numbers
+3. Test deployment with new versions
+4. Commit changes to repository
+
+---
 
 ## Troubleshooting
 
